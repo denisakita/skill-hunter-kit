@@ -71,3 +71,7 @@ python3 skills/skill-hunter/scripts/hunt.py inspect anthropics/skills skills/mcp
 | 3 | GitHub code search for `SKILL.md` (20+ stars, not archived) |
 
 Add your own sources as tier 2 with `SKILL_HUNTER_SOURCES="owner/repo,owner/repo"`.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
