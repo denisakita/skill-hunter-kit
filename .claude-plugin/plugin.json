@@ -1,0 +1,13 @@
+{
+  "name": "skill-hunter",
+  "version": "0.1.0",
+  "description": "Finds, vets and safely installs the Claude skills a project or role needs (programming, AI engineering, product engineering, UX/UI design), plus a product-engineer skill for UX ideas and prototypes and an ai-engineer agent.",
+  "author": {
+    "name": "denisakita",
+    "url": "https://github.com/denisakita"
+  },
+  "homepage": "https://github.com/denisakita/skill-hunter-kit",
+  "repository": "https://github.com/denisakita/skill-hunter-kit",
+  "license": "MIT",
+  "keywords": ["skills", "plugins", "vetting", "security", "product-engineering", "ux", "prototyping", "ai-engineering"]
+}

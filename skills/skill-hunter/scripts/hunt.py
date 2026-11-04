@@ -6,9 +6,9 @@ Commands
   installed [DIR]                   skills already installed (personal, project, plugins)
   catalog   [--refresh]             build or show the index of skills in the trusted sources
   search    TERM... [--github]      rank skills matching the terms (--github adds GitHub-wide results)
-  kit       [--areas a,b] [--top N] hunt every skill area a programmer / AI engineer needs
+  kit       [--role R | --areas a,b] hunt the skill areas a role needs (default: every area)
   inspect   REPO PATH               list a skill's files, flag risky content, print its SKILL.md
-  install   REPO PATH --dest DIR    copy a vetted skill folder into DIR (never runs anything)
+  install   REPO PATH --dest DIR    copy the exact version you inspected into DIR (never runs anything)
 
 Standard library only. GitHub API calls go through the `gh` CLI when it is installed
 (logged-in requests get higher rate limits, and code search needs them), otherwise they
@@ -46,9 +46,12 @@ SOURCES = [
     ("wshobson/agents", 2, {}),
     # composio-skills/ are app connectors that need Composio's hosted MCP server
     ("ComposioHQ/awesome-claude-skills", 2, {"composio-skills/": 3}),
+    # product management and UI/UX design collections
+    ("deanpeters/Product-Manager-Skills", 2, {}),
+    ("nextlevelbuilder/ui-ux-pro-max-skill", 2, {}),
 ]
 
-SKIP_PATH = re.compile(r"(^|/)(templates?|examples?|example-plugin|tests?|fixtures|node_modules)/")
+SKIP_PATH = re.compile(r"(^|/)(templates?|examples?|example-plugin|tests?|fixtures|node_modules|assets)/")
 
 # Skill areas used by `kit` and `detect`, each with the search terms that find it.
 AREAS = {
@@ -75,6 +78,31 @@ AREAS = {
     "evals": ["evaluation", "evals", "llm as judge", "benchmark"],
     "ml-training": ["fine tuning", "pytorch", "machine learning", "training"],
     "llm-ops": ["observability", "llmops", "prompt caching", "tracing"],
+    # product and design
+    "product-discovery": ["product discovery", "discovery", "ideation", "brainstorming", "opportunity solution",
+                          "jobs to be done", "problem framing", "problem statement"],
+    "prds-specs": ["prd", "product requirements", "user story", "user stories", "epic", "press release"],
+    "prioritization": ["prioritization", "roadmap", "rice", "backlog", "feature investment"],
+    "user-research": ["user research", "discovery interview", "customer interview", "persona", "usability",
+                      "customer journey"],
+    "feedback-iteration": ["feedback", "voice of customer", "critique", "design review", "iteration", "insights"],
+    "prototyping": ["prototype", "prototyping", "mockup", "wireframe", "mvp", "pol probe", "lean ux", "storyboard",
+                    "artifacts builder", "playground"],
+    "ux-ui-design": ["ux", "ui ux", "ui design", "interaction design", "visual design", "frontend design",
+                     "ui styling"],
+    "design-systems": ["design system", "design tokens", "component library", "theme", "brand"],
+    "accessibility": ["accessibility", "a11y", "wcag", "screen reader"],
+    "analytics-experiments": ["product analytics", "analytics", "a b test", "experiment", "funnel", "feature flag"],
+}
+# Role presets for `kit --role`: the areas each role hunts, most important first.
+ROLES = {
+    "product-engineer": ["prototyping", "ux-ui-design", "product-discovery", "design-systems", "accessibility",
+                         "user-research", "prioritization", "frontend", "analytics-experiments", "testing",
+                         "code-review", "git-workflow"],
+    "designer": ["ux-ui-design", "design-systems", "prototyping", "accessibility", "feedback-iteration",
+                 "user-research", "frontend", "product-discovery"],
+    "ai-engineer": ["claude-api", "prompt-engineering", "agents", "rag", "mcp", "evals", "llm-ops", "api-backend",
+                    "frontend", "database", "testing", "debugging", "security"],
 }
 PROGRAMMING_CORE = ["testing", "debugging", "code-review", "git-workflow", "security"]
 AI_CORE = ["claude-api", "prompt-engineering", "agents", "evals"]
@@ -238,10 +266,26 @@ def marketplace(repo, ref):
 
 # ---------------------------------------------------------------- catalog
 
-def build_catalog():
+def all_sources():
     extra = [(s.strip(), 2, {}) for s in os.environ.get("SKILL_HUNTER_SOURCES", "").split(",") if s.strip()]
+    return SOURCES + extra
+
+
+def source_names():
+    return [repo for repo, _, _ in all_sources()]
+
+
+def source_tier(repo, path):
+    """Tier of a skill by where it lives: 1-2 for the indexed sources, 3 for anything else."""
+    for r, tier, overrides in all_sources():
+        if r.lower() == repo.lower():
+            return next((t for prefix, t in overrides.items() if path.startswith(prefix)), tier)
+    return 3
+
+
+def build_catalog():
     entries, stats = [], []
-    for repo, tier, overrides in SOURCES + extra:
+    for repo, tier, overrides in all_sources():
         try:
             info = repo_info(repo)
             tree = gh_api(f"repos/{repo}/git/trees/{info['branch']}?recursive=1")
@@ -280,14 +324,15 @@ def build_catalog():
         entries.extend(found)
         stats.append((repo, tier, info["stars"], len(found)))
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    CATALOG_FILE.write_text(json.dumps({"built": time.time(), "stats": stats, "entries": entries}))
+    CATALOG_FILE.write_text(json.dumps({"built": time.time(), "sources": source_names(), "stats": stats,
+                                        "entries": entries}))
     return entries, stats
 
 
 def load_catalog(refresh=False):
     if not refresh and CATALOG_FILE.exists():
         data = json.loads(CATALOG_FILE.read_text())
-        if time.time() - data.get("built", 0) < CATALOG_MAX_AGE:
+        if time.time() - data.get("built", 0) < CATALOG_MAX_AGE and data.get("sources") == source_names():
             return data["entries"], data["stats"]
     print("building skill catalog from the trusted sources (cached for 7 days)...", file=sys.stderr)
     return build_catalog()
@@ -338,7 +383,7 @@ def rank(entries, terms, skip_names=()):
 def install_hint(e):
     if e.get("plugin") and e.get("marketplace"):
         return f"plugin: /plugin marketplace add {e['repo']}  then  /plugin install {e['plugin']}@{e['marketplace']}"
-    return f"folder: hunt.py install {e['repo']} {e['path']} --dest <skills dir>"
+    return f"folder: hunt.py inspect {e['repo']} {e['path']}, then install with --dest <skills dir>"
 
 
 def print_entry(i, e, installed_names):
@@ -347,7 +392,8 @@ def print_entry(i, e, installed_names):
         print(f"{i:2}. {e['name']}  [tier {e['tier']}, plugin listed in {e['marketplace']}]{mark}")
         print(f"    source: {e.get('source') or 'see marketplace.json'}")
     else:
-        print(f"{i:2}. {e['name']}  [tier {e['tier']}, ★{e['stars']}, updated {e['pushed']}]  {e['repo']}{mark}")
+        warn3 = "  UNVETTED SOURCE" if e["tier"] >= 3 else ""
+        print(f"{i:2}. {e['name']}  [tier {e['tier']}, ★{e['stars']}, updated {e['pushed']}]  {e['repo']}{mark}{warn3}")
         print(f"    path: {e['path']}")
     print(f"    {install_hint(e)}")
     if e["description"]:
@@ -503,9 +549,9 @@ def _safe(fn, *args):
 
 # ---------------------------------------------------------------- inspect / install
 
-def skill_files(repo, path):
+def skill_files(repo, path, commit=None):
     info = repo_info(repo)
-    commit = gh_api(f"repos/{repo}/commits/{info['branch']}")["sha"]
+    commit = commit or gh_api(f"repos/{repo}/commits/{info['branch']}")["sha"]
     tree = gh_api(f"repos/{repo}/git/trees/{commit}?recursive=1")["tree"]
     skill_dir = path[:-len("/SKILL.md")] if path.endswith("/SKILL.md") else ("" if path == "SKILL.md" else path.rstrip("/"))
     prefix = skill_dir + "/" if skill_dir else ""
@@ -521,12 +567,16 @@ def is_code(path, text=""):
     return Path(path).suffix.lower() in CODE_EXT or text.startswith("#!")
 
 
+DATA_EXT = {".csv", ".tsv"}
+
+
 def scan(path, text):
     code = is_code(path, text)
+    data = Path(path).suffix.lower() in DATA_EXT  # rows of data: only injection wording matters there
     hits = []
     for n, line in enumerate(text.splitlines(), 1):
         for pattern, reason, only in RED_FLAGS:
-            if only == "code" and not code:
+            if (only == "code" and not code) or (data and reason != "prompt-injection wording"):
                 continue
             if re.search(pattern, line, re.I if only is None else 0):
                 hits.append((n, reason, line.strip()[:110]))
@@ -621,10 +671,61 @@ def cmd_inspect(repo, path, show_file=None):
     if len(lines) > 600:
         print(f"... {len(lines) - 600} more lines (use --file SKILL.md)")
     print("----- end SKILL.md -----")
+    tier = source_tier(repo, path)
+    record = inspection_file(repo, path)
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(json.dumps({"repo": repo, "path": path, "commit": commit, "tier": tier, "flags": flags,
+                                  "informational": info_count, "inspected": time.time()}))
+    print(f"\nrecorded: tier {tier}, commit {commit[:12]}, {flags} red flags. `install` will copy exactly this version"
+          " (valid for 24 hours).")
+    if tier == 3:
+        print("TIER 3: unvetted community source. Install only if the user explicitly approves this named skill.")
 
 
-def cmd_install(repo, path, dest, force):
-    info, commit, skill_dir, files, _ = skill_files(repo, path)
+INSPECTION_MAX_AGE = 24 * 3600
+
+
+def inspection_file(repo, path):
+    return CACHE_DIR / "inspected" / (re.sub(r"[^A-Za-z0-9._-]+", "_", f"{repo}/{path}") + ".json")
+
+
+def bypass_mode_setting(project):
+    """The settings file that makes Claude Code skip permission prompts by default, if any."""
+    for f in (Path.home() / ".claude" / "settings.json", Path.home() / ".claude" / "settings.local.json",
+              Path(project) / ".claude" / "settings.json", Path(project) / ".claude" / "settings.local.json"):
+        try:
+            if (json.loads(f.read_text()).get("permissions") or {}).get("defaultMode") == "bypassPermissions":
+                return f
+        except (OSError, ValueError, AttributeError):
+            continue
+    return None
+
+
+def check_install_allowed(repo, path, accept_flags, allow_tier3):
+    """Safety gates; returns the inspected commit to install."""
+    bypass = bypass_mode_setting(Path.cwd())
+    if bypass:
+        raise SystemExit(f"refusing: {bypass} sets defaultMode to bypassPermissions. Installed skills should be "
+                         "added while Claude Code still asks before acting; switch back to the default mode first.")
+    try:
+        rec = json.loads(inspection_file(repo, path).read_text())
+    except (OSError, ValueError):
+        raise SystemExit(f"refusing: inspect it first (hunt.py inspect {repo} {path}); "
+                         "install only copies a version you have vetted.")
+    if time.time() - rec.get("inspected", 0) > INSPECTION_MAX_AGE:
+        raise SystemExit("refusing: the inspection is older than 24 hours; run inspect again.")
+    if rec.get("tier", 3) >= 3 and not allow_tier3:
+        raise SystemExit("refusing: tier 3 (unvetted community source). Pass --allow-tier3 only after the user "
+                         "explicitly approved installing this specific skill.")
+    if rec.get("flags", 0) and not accept_flags:
+        raise SystemExit(f"refusing: inspect found {rec['flags']} red flags. Pass --accept-flags only after "
+                         "reviewing each one and the user agreeing they are harmless.")
+    return rec["commit"]
+
+
+def cmd_install(repo, path, dest, force, accept_flags=False, allow_tier3=False):
+    commit = check_install_allowed(repo, path, accept_flags, allow_tier3)
+    info, commit, skill_dir, files, _ = skill_files(repo, path, commit)
     total = sum(t.get("size", 0) for t in files)
     if len(files) > MAX_INSTALL_FILES or total > MAX_INSTALL_BYTES:
         raise SystemExit(f"refusing: {len(files)} files / {total // 1024} KB is too big for a skill")
@@ -674,6 +775,7 @@ def main():
     p.add_argument("--top", type=int, default=8)
     p.add_argument("--dir", default=".", help="project whose installed skills to mark")
     p = sub.add_parser("kit")
+    p.add_argument("--role", choices=sorted(ROLES), help="hunt the areas this role needs")
     p.add_argument("--areas", help="comma-separated areas (default: all); see `kit --list`")
     p.add_argument("--top", type=int, default=3)
     p.add_argument("--list", action="store_true")
@@ -683,7 +785,9 @@ def main():
     p = sub.add_parser("install")
     p.add_argument("repo"); p.add_argument("path")
     p.add_argument("--dest", required=True, help="~/.claude/skills (personal) or <project>/.claude/skills")
-    p.add_argument("--force", action="store_true")
+    p.add_argument("--force", action="store_true", help="replace an existing folder of the same name")
+    p.add_argument("--accept-flags", action="store_true", help="install despite red flags (after review + user OK)")
+    p.add_argument("--allow-tier3", action="store_true", help="install from an unvetted source (after user OK)")
     a = ap.parse_args()
 
     if a.cmd == "detect":
@@ -748,8 +852,12 @@ def main():
         if a.list:
             for area, terms in AREAS.items():
                 print(f"  {area}: {', '.join(terms)}")
+            for role, areas in ROLES.items():
+                print(f"role {role}: {', '.join(areas)}")
             return
-        areas = [x.strip() for x in a.areas.split(",")] if a.areas else list(AREAS)
+        if a.role and a.areas:
+            raise SystemExit("pass --role or --areas, not both")
+        areas = ROLES[a.role] if a.role else [x.strip() for x in a.areas.split(",")] if a.areas else list(AREAS)
         unknown = [x for x in areas if x not in AREAS]
         if unknown:
             raise SystemExit(f"unknown areas: {', '.join(unknown)} (see `kit --list`)")
@@ -775,7 +883,7 @@ def main():
         cmd_inspect(a.repo, a.path, a.file)
 
     elif a.cmd == "install":
-        cmd_install(a.repo, a.path, a.dest, a.force)
+        cmd_install(a.repo, a.path, a.dest, a.force, a.accept_flags, a.allow_tier3)
 
 
 if __name__ == "__main__":

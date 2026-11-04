@@ -1,0 +1,17 @@
+{
+  "name": "skill-hunter-kit",
+  "owner": {
+    "name": "denisakita"
+  },
+  "metadata": {
+    "description": "denisakita's skill hunter: find, vet and safely install Claude skills."
+  },
+  "plugins": [
+    {
+      "name": "skill-hunter",
+      "source": "./",
+      "description": "Finds, vets and safely installs the Claude skills a project or role needs, plus a product-engineer skill for UX ideas and prototypes and an ai-engineer agent.",
+      "category": "development"
+    }
+  ]
+}
