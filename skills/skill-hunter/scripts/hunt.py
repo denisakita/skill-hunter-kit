@@ -113,11 +113,12 @@ DEPENDENCY_AREAS = {
     "frontend": ["npm:react", "npm:next", "npm:vue", "npm:nuxt", "npm:@angular/core", "npm:svelte",
                  "npm:solid-js", "npm:tailwindcss", "npm:vite"],
     "api-backend": ["npm:express", "npm:fastify", "npm:@nestjs/core", "npm:koa", "npm:hono", "py:django",
-                    "py:flask", "py:fastapi", "any:rails", "any:spring-boot", "any:gin-gonic", "any:axum",
+                    "py:flask", "py:fastapi", "py:djangorestframework", "any:rails", "any:spring-boot", "any:gin-gonic", "any:axum",
                     "any:actix-web", "any:laravel"],
     "database": ["npm:prisma", "npm:typeorm", "npm:drizzle-orm", "npm:mongoose", "npm:sequelize", "npm:pg",
-                 "py:sqlalchemy", "py:alembic", "py:psycopg", "py:psycopg2", "any:redis", "any:gorm", "any:diesel"],
-    "testing": ["npm:jest", "npm:vitest", "npm:mocha", "npm:@playwright/test", "npm:cypress", "py:pytest",
+                 "py:sqlalchemy", "py:alembic", "py:psycopg", "py:psycopg2", "py:psycopg2-binary", "any:redis", "any:gorm", "any:diesel"],
+    "testing": ["npm:jest", "npm:vitest", "npm:mocha", "npm:karma", "npm:jasmine-core", "npm:@playwright/test",
+                "npm:cypress", "py:pytest",
                 "any:rspec", "any:junit"],
     "claude-api": ["npm:@anthropic-ai/sdk", "npm:@anthropic-ai/claude-agent-sdk", "py:anthropic",
                    "py:claude-agent-sdk", "npm:@ai-sdk/anthropic"],
@@ -139,7 +140,8 @@ DEPENDENCY_AREAS = {
 # Dependency -> the word skills use for it, for the stack-specific searches `detect` prints.
 TECH_TERMS = {
     "next": "nextjs", "@angular/core": "angular", "@nestjs/core": "nestjs", "@playwright/test": "playwright",
-    "solid-js": "solid", "drizzle-orm": "drizzle", "pg": "postgres", "psycopg": "postgres", "psycopg2": "postgres",
+    "solid-js": "solid", "drizzle-orm": "drizzle", "pg": "postgres", "psycopg": "postgres", "psycopg2": "postgres", "psycopg2-binary": "postgres",
+    "djangorestframework": "django rest", "tailwindcss": "tailwind", "jasmine-core": "jasmine",
     "@anthropic-ai/sdk": "claude api", "anthropic": "claude api", "@anthropic-ai/claude-agent-sdk": "agent sdk",
     "claude-agent-sdk": "agent sdk", "@ai-sdk/anthropic": "vercel ai", "ai": "vercel ai",
     "@modelcontextprotocol/sdk": "mcp", "fastmcp": "mcp", "@langchain/core": "langchain",
@@ -441,6 +443,14 @@ def installed_names(project):
 
 # ---------------------------------------------------------------- project detection
 
+def read_manifest(path):
+    """Text of a manifest in UTF-8 or UTF-16 (pip freeze on Windows writes UTF-16 with a BOM)."""
+    data = path.read_bytes()
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return data.decode("utf-16", "replace")
+    return data.decode("utf-8-sig", "replace")
+
+
 def detect(project):
     root = Path(project).resolve()
     skip = {"node_modules", ".git", ".venv", "venv", "dist", "build", "target", "__pycache__", ".next", "vendor"}
@@ -458,13 +468,13 @@ def detect(project):
     for f in files:
         try:
             if f.name == "package.json":
-                pkg = json.loads(f.read_text(errors="replace"))
+                pkg = json.loads(read_manifest(f))
                 for k in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
                     npm.update((pkg.get(k) or {}).keys())
             elif re.match(r"requirements.*\.txt$|pyproject\.toml$|Pipfile$|setup\.py$|setup\.cfg$|environment\.ya?ml$", f.name):
-                py_text += "\n" + f.read_text(errors="replace").lower()
+                py_text += "\n" + read_manifest(f).lower()
             elif f.name in ("go.mod", "Cargo.toml", "Gemfile", "pom.xml", "composer.json") or f.name.startswith("build.gradle"):
-                other_text += "\n" + f.read_text(errors="replace").lower()
+                other_text += "\n" + read_manifest(f).lower()
         except (OSError, ValueError):
             continue
 
