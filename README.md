@@ -116,6 +116,9 @@ python3 skills/skill-hunter/scripts/hunt.py inspect anthropics/skills skills/fro
 
 Add your own sources as tier 2 with `SKILL_HUNTER_SOURCES="owner/repo,owner/repo"`.
 
+Skills already found and vetted, with their safety details and install commands:
+[docs/vetted-skills.md](docs/vetted-skills.md).
+
 ## Without the plugin
 
 To use it on one computer without the plugin system, copy the folders instead:
